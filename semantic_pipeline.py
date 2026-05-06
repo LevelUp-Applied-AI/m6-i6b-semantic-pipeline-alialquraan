@@ -9,6 +9,7 @@ article corpus.
 import numpy as np
 import pandas as pd
 import spacy
+import torch
 
 
 def load_and_preprocess(filepath):
@@ -22,7 +23,18 @@ def load_and_preprocess(filepath):
         preprocessing columns you add (e.g., cleaned text).
     """
     # TODO: Load the CSV, handle missing values, ensure text column is clean
-    pass
+    df = pd.read_csv(filepath)
+
+    df = df.dropna(subset=["text"])
+
+    df["text"] = df["text"].str.strip()
+
+    if "language" in df.columns:
+        df = df[df["language"] == "en"]
+
+    df = df.reset_index(drop=True)
+
+    return df
 
 
 def run_ner(texts):
@@ -37,7 +49,21 @@ def run_ner(texts):
     """
     # TODO: Load a spaCy model, process each text, extract entities,
     #       and collect into a DataFrame
-    pass
+    nlp = spacy.load("en_core_web_sm")
+
+    data = []
+
+    for i, text in enumerate(texts):
+        doc = nlp(text)
+
+        for ent in doc.ents:
+            data.append({
+                "text_index": i,
+                "entity_text": ent.text,
+                "entity_label": ent.label_
+            })
+
+    return pd.DataFrame(data)
 
 
 def compute_embeddings(texts, tokenizer, model):
@@ -54,10 +80,31 @@ def compute_embeddings(texts, tokenizer, model):
     Returns:
         numpy array of shape (n_texts, 768).
     """
-    import torch
     # TODO: Iterate over texts, tokenize with padding/truncation,
     #       run model forward pass (with torch.no_grad()), mean-pool hidden states
-    pass
+    import torch
+
+    embeddings = []
+
+    for text in texts:
+        inputs = tokenizer(
+            text,
+            return_tensors="pt",
+            truncation=True,
+            padding=True,
+            max_length=512
+        )
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        last_hidden_state = outputs.last_hidden_state  # (1, seq_len, 768)
+
+        emb = last_hidden_state.mean(dim=1).squeeze().numpy()
+
+        embeddings.append(emb)
+
+    return np.array(embeddings)
 
 
 def semantic_search(query, corpus_embeddings, corpus_texts, top_k=5):
@@ -74,7 +121,17 @@ def semantic_search(query, corpus_embeddings, corpus_texts, top_k=5):
     """
     # TODO: Compute cosine similarity between query and all corpus embeddings,
     #       sort by similarity, return top-k results
-    pass
+    similarities = np.dot(corpus_embeddings, query) / (
+        np.linalg.norm(corpus_embeddings, axis=1) * np.linalg.norm(query)
+    )
+
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+
+    results = []
+    for idx in top_indices:
+        results.append((corpus_texts[idx], similarities[idx]))
+
+    return results
 
 
 def enrich_with_entities(search_results, entity_df, corpus_texts):
@@ -100,7 +157,25 @@ def enrich_with_entities(search_results, entity_df, corpus_texts):
     #       a list of {'text': entity_text, 'label': entity_label} dicts.
     # TODO: Return one dict per search result with keys text, similarity,
     #       entities.
-    pass
+    enriched_results = []
+
+    for text, score in search_results:
+        text_index = corpus_texts.index(text)
+
+        ents = entity_df[entity_df["text_index"] == text_index]
+
+        entities = [
+            {"text": row["entity_text"], "label": row["entity_label"]}
+            for _, row in ents.iterrows()
+        ]
+
+        enriched_results.append({
+            "text": text,
+            "similarity": score,
+            "entities": entities
+        })
+
+    return enriched_results
 
 
 def demonstrate_pipeline(corpus_df, entity_df, embeddings, queries,
@@ -129,7 +204,28 @@ def demonstrate_pipeline(corpus_df, entity_df, embeddings, queries,
     # TODO: Call enrich_with_entities, passing corpus_df['text'].tolist()
     #       as corpus_texts.
     # TODO: Collect into a dict keyed by the query string and return it.
-    pass
+    results = {}
+
+    corpus_texts = corpus_df["text"].tolist()
+
+    for query in queries:
+        query_emb = compute_embeddings([query], tokenizer, model)[0]
+
+        search_results = semantic_search(
+            query_emb,
+            embeddings,
+            corpus_texts
+        )
+
+        enriched = enrich_with_entities(
+            search_results,
+            entity_df,
+            corpus_texts
+        )
+
+        results[query] = enriched
+
+    return results
 
 
 if __name__ == "__main__":
