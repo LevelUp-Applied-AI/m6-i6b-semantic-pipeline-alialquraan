@@ -25,13 +25,10 @@ def load_and_preprocess(filepath):
     # TODO: Load the CSV, handle missing values, ensure text column is clean
     df = pd.read_csv(filepath)
 
-    # حذف القيم الفارغة
     df = df.dropna(subset=["text"])
 
-    # تنظيف النصوص
     df["text"] = df["text"].str.strip()
 
-    # فلترة اللغة (اختياري لكن مهم)
     if "language" in df.columns:
         df = df[df["language"] == "en"]
 
@@ -83,7 +80,6 @@ def compute_embeddings(texts, tokenizer, model):
     Returns:
         numpy array of shape (n_texts, 768).
     """
-    import torch
     # TODO: Iterate over texts, tokenize with padding/truncation,
     #       run model forward pass (with torch.no_grad()), mean-pool hidden states
     import torch
@@ -104,7 +100,6 @@ def compute_embeddings(texts, tokenizer, model):
 
         last_hidden_state = outputs.last_hidden_state  # (1, seq_len, 768)
 
-        # mean pooling
         emb = last_hidden_state.mean(dim=1).squeeze().numpy()
 
         embeddings.append(emb)
@@ -130,7 +125,6 @@ def semantic_search(query, corpus_embeddings, corpus_texts, top_k=5):
         np.linalg.norm(corpus_embeddings, axis=1) * np.linalg.norm(query)
     )
 
-    # ترتيب النتائج
     top_indices = np.argsort(similarities)[::-1][:top_k]
 
     results = []
@@ -215,17 +209,14 @@ def demonstrate_pipeline(corpus_df, entity_df, embeddings, queries,
     corpus_texts = corpus_df["text"].tolist()
 
     for query in queries:
-        # embedding للـ query
         query_emb = compute_embeddings([query], tokenizer, model)[0]
 
-        # semantic search
         search_results = semantic_search(
             query_emb,
             embeddings,
             corpus_texts
         )
 
-        # enrichment
         enriched = enrich_with_entities(
             search_results,
             entity_df,
